@@ -1,0 +1,309 @@
+---
+title: "Interprétation géométrique de NCI"
+author:
+  - name: "Eric Marcon"
+abstract: >
+  -
+date: "`r format(Sys.time(), '%d %B %Y')`"
+url: https://EricMarcon.github.io/NCI/
+github-repo: EricMarcon/NCI
+# Language
+lang: fr-FR
+# Bibliography
+bibliography: references.bib
+biblio-style: chicago
+# LaTeX
+preamble: >
+  \hyphenation{bio-di-ver-si-ty sap-lings}
+# Print table of contents in PDFs?
+pdftoc: false
+# If true, choose its depth
+toc-depth: 3
+# URL color
+urlcolor: blue
+# Do not modify
+always_allow_html: yes
+csquotes: true
+output:
+  rmdformats::downcute:
+    use_bookdown: yes
+    lightbox: yes
+---
+
+```{r DoNotModify, include=FALSE}
+### Utilities. Do not modify.
+# Installation of packages if necessary
+InstallPackages <- function(Packages) {
+  InstallPackage <- function(Package) {
+    if (!Package %in% installed.packages()[, 1]) {
+      install.packages(Package, repos="https://cran.rstudio.com/")
+    }
+  }
+  invisible(sapply(Packages, InstallPackage))
+}
+
+# Basic packages
+InstallPackages(c("bookdown", "formatR", "kableExtra", "ragg"))
+
+# kableExtra must be loaded 
+if (knitr::opts_knit$get("rmarkdown.pandoc.to") == "docx") {
+  # Word output (https://stackoverflow.com/questions/35144130/in-knitr-how-can-i-test-for-if-the-output-will-be-pdf-or-word)
+  # Do not use autoformat (https://github.com/haozhu233/kableExtra/issues/308)
+  options(kableExtra.auto_format = FALSE)
+}
+library("kableExtra")
+
+# Chunk font size hook: allows size='small' or any valid Latex font size in chunk options
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+```
+
+```{r Options, include=FALSE}
+### Customized options for this document
+# Add necessary packages here
+Packages <- c("tidyverse", "dbmss", "GoFKernel")
+# Install them
+InstallPackages(Packages)
+
+# knitr options
+knitr::opts_chunk$set(
+  cache =   FALSE,    # Cache chunk results
+  include = TRUE,     # Show/Hide chunks
+  echo =    TRUE,     # Show/Hide code
+  warning = FALSE,    # Show/Hide warnings
+  message = FALSE,    # Show/Hide messages
+  # Figure alignment and size
+  fig.align = 'center', out.width = '80%',
+  # Graphic devices (ragg_png is better than standard png)
+  dev = c("ragg_png", "pdf"),
+  # Code chunk format
+  tidy = TRUE, tidy.opts = list(blank=FALSE, width.cutoff=50),
+  size = "scriptsize", knitr.graphics.auto_pdf = TRUE
+  )
+options(width = 50)
+
+# ggplot style
+library("tidyverse")
+theme_set(theme_bw())
+theme_update(panel.background=element_rect(fill="transparent", colour=NA),
+             plot.background=element_rect(fill="transparent", colour=NA))
+knitr::opts_chunk$set(dev.args=list(bg="transparent"))
+
+# Random seed
+set.seed(973)
+```
+
+# NCI
+
+## Définition
+
+L'indice d'encombrement du voisinage de l'arbre $i$ est défini par
+
+$${NCI}_i = \sum_j^{r_j \leq r_{max}}{d_j^2 / r_j}.$$
+
+où les voisins indicés par $j$ situés à la distance $r_j$ de l'arbre de référence (inférieur à $r_{max}$ fixé à 10m) ont pour diamètre $d_j$.
+
+Sa dimension est une distance : $m^2 m^{-1}$.
+
+
+## Reformulation
+
+$d_j / r_j$ est la tangente de l'angle apparent $\alpha_j$ du  voisin $j$ du point de vue de l'arbre de référence.
+
+Comme les angles sont petits, l'approximation $\alpha_j \approx \tan(\alpha_j)$ est valide.
+
+L'indice peut être réécrit
+
+$${NCI}_i = \sum_j^{r_j \leq r_{max}}{d_j \alpha_j}.$$
+
+La contribution de chaque voisin est donc le produit de son angle apparent par son diamètre.
+On peut définir un diamètre équivalent $d_j^{eq}$ pour le voisin $j$ correspondant à un angle apparent $\alpha$ arbitrairement choisi, ce qui permet de caractériser chaque voisin par cette seule valeur telle que 
+
+$${NCI}_i = \alpha \sum_j^{r_j \leq r_{max}}{d_j^{eq}}$$
+
+où $d_j^{eq} = d_j \alpha_j / \alpha$.
+
+Les diamètres équivalents des voisins s'additionnent pour définir un diamètre équivalent total des voisins de l'arbre $i$:
+
+$${NCI}_i = \alpha d_i^{eq}.$$
+
+## Interprétation
+
+En choisissant $\alpha = 2 \pi$, on voit que chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = d_j^2 / (2 \pi r_j)$.
+
+Pour un rayon $r$ quelconque autour de l'arbre $i$, $2 \pi r d_i^{eq}$ est la surface de la couronne de largeur $d_i^{eq}$.
+L'indice d'encombrement divisé par $2 \pi$, c'est-à-dire  ${NCI}_i / (2 \pi) = d_i^{eq}$, est donc la largeur d'une couronne qui encercle totalement l'arbre de référence $i$ à une distance $r$  arbitraire.
+
+Sous l'hypothèse de la distribution complètement aléatoire des arbres, $d_i^{eq}$, comme ${NCI}_i$, est proportionnel à $r_{max}$.
+Dit autrement, les arbres les plus lointains contribuent moins mais sont plus nombreux: leur contribution totale est équivalente à celle des arbres les plus proches.
+La métrique la plus intéressante est donc
+
+$${RCR}_i = d_i^{eq} / r_{max},$$
+la proportion de l'espace (unidimensionnel) encombré par les voisins ("Radial Crowding Ratio").
+
+
+# Application
+
+## Données
+
+Parcelle 6 de Paracou:
+
+```{r}
+load("data/Paracou6.rda")
+library("dbmss")
+autoplot(Paracou6) + 
+  ggplot2::labs(col = "Espèce", size = "Surface terrière")
+```
+
+## Fonction de calcul de NCI
+
+```{r}
+library("spatstat.geom")
+
+#' NCI
+#' 
+#' Calculate NCI of point i
+#'
+#' @param i Index of a point of `ppp`.
+#' @param ppp A planar point pattern.
+#' @param r_max The radius of the neighborhood
+#'
+#' @return The crowding index, in meters.
+NCI <- function(i, ppp, r_max = 10) {
+  # Neighborhood
+  neighborhood <- ppp[disc(radius = r_max, centre = c(ppp$x[i], ppp$y[i]))]
+  
+  # Test inclusion
+  if (!is.subset.owin(neighborhood$window, ppp$window)) {
+    return(NA)
+  }
+
+  # Distance from the center
+  r_j_squared <- vapply(
+    # Each point j
+    seq_len(neighborhood$n),
+    FUN = function(j) {
+      (neighborhood$x[j] - ppp$x[i])^2 + (neighborhood$y[j] - ppp$y[i])^2
+    }, 
+    FUN.VALUE = 0
+  )
+  r_j <- sqrt(r_j_squared)
+  is_not_center <- r_j != 0
+  
+  # Diameters
+  d_j_squared <- neighborhood$marks$PointWeight * 4 / pi / 10000
+  
+  return(
+    # Eliminate the center point
+    sum(d_j_squared[is_not_center] / r_j[is_not_center])
+  )
+}
+```
+
+## Calcul des NCI de la parcelle 6
+
+```{r}
+r_max <- 10
+# Compute NCI
+NCI_i <- vapply(
+  seq_len(Paracou6$n), 
+  FUN = NCI, 
+  FUN.VALUE = 0, 
+  #Arguments
+  ppp = Paracou6, 
+  r_max = r_max
+)
+# Eliminate points close to edges
+NCI_i <- NCI_i[!is.na(NCI_i)]
+
+# Equivalent d
+d_i_eq <- NCI_i / 2 / pi
+
+# Crowding ratio
+RCR_i <- d_i_eq / r_max
+
+# Distribution
+RCR_median <- median(RCR_i)
+library("GoFKernel")
+plot(density.reflected(RCR_i, lower = 0), main = "")
+abline(v = RCR_median, col = "red")
+```
+
+La valeur médiane du ratio d'encombrement est `r format(RCR_median * 1000, digits = 2)` pour mille.
+
+
+## Vérification de l'absence de sensibilité à la distance
+
+En multipliant le rayon du voisinage par 2, NCI doit être approximativement multiplié par 2 et le ratio d'encombrement doit être stable.
+L'augmentation du rayon élimine des points proche de la bordure de la parcelle et lisse les données de voisinage. 
+On s'attend à ce que la médiane soit stable et la variabilité plus faible.
+
+```{r}
+r_max <- 20
+# Compute NCI
+NCI_i_20 <- vapply(
+  seq_len(Paracou6$n), 
+  FUN = NCI, 
+  FUN.VALUE = 0, 
+  #Arguments
+  ppp = Paracou6, 
+  r_max = r_max
+)
+# Eliminate points close to edges
+NCI_i_20 <- NCI_i_20[!is.na(NCI_i_20)]
+
+# Equivalent d
+d_i_eq_20 <- NCI_i_20 / 2 / pi
+
+# Crowding ratio
+RCR_i_20 <- d_i_eq_20 / r_max
+
+# Distribution
+RCR_median_20 <- median(RCR_i_20)
+library("GoFKernel")
+plot(density.reflected(RCR_i_20, lower = 0), main = "")
+abline(v = RCR_median_20, col = "red")
+```
+
+La valeur médiane du ratio d'encombrement est maintenant `r format(RCR_median_20 * 1000, digits = 2)` pour mille.
+
+
+## Conclusion
+
+Le RCR permet d'interpréter l'indice d'encombrement.
+C'est la largeur (normalisée par le rayon du voisinage) d'une couronne autour du point de référence dont le NCI est identique à la valeur observée.
+Sa valeur est faible : de l'ordre de 3 pour mille.
+
+```{r, include=FALSE}
+r_max <- 60
+# Compute NCI
+NCI_i_60 <- vapply(
+  seq_len(Paracou6$n), 
+  FUN = NCI, 
+  FUN.VALUE = 0, 
+  #Arguments
+  ppp = Paracou6, 
+  r_max = r_max
+)
+# Eliminate points close to edges
+NCI_i_60 <- NCI_i_60[!is.na(NCI_i_60)]
+
+# Equivalent d
+d_i_eq_60 <- NCI_i_60 / 2 / pi
+
+# Crowding ratio
+RCR_i_60 <- d_i_eq_60 / r_max
+
+# Distribution
+RCR_median_60 <- median(RCR_i_60)
+library("GoFKernel")
+plot(density.reflected(RCR_i_60, lower = 0), main = "")
+abline(v = RCR_median_60, col = "red")
+```
+
+Sa définition est indépendante du rayon du voisinage.
+Sa valeur dans la parcelle 6 est très stable : à 60m (voisinage > 1ha), sa médiane est `r format(RCR_median_60 * 1000, digits = 2)` pour mille.
+Le choix du rayon ne modifie donc pas l'encombrement moyen mais sa variabilité entre les arbres.
