@@ -24,7 +24,8 @@ jobs:
           install.packages(c("distill", "downlit", "memoiR", "rmdformats", "tinytex"))
           tinytex::install_tinytex()
           tinytex::tlmgr_install("hyphen-french")
-        shell: Rscript {0}
+          tinytex::tlmgr_install("pdfcrop")
+       shell: Rscript {0}
       - name: Render Rmarkdown files
         run: |
           Sys.setlocale("LC_TIME", "fr_FR")
