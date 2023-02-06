@@ -64,13 +64,17 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 ```{r Options, include=FALSE}
 ### Customized options for this document
 # Add necessary packages here
-Packages <- c("tidyverse", "dbmss", "GoFKernel")
+Packages <- c("tidyverse", "dbmss", "GoFKernel", "magick")
 # Install them
 InstallPackages(Packages)
 
+# Crop images (requires package magick 
+# and pdfcrop installed by tinytex::tlmgr_install("pdfcrop"))
+knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
 # knitr options
 knitr::opts_chunk$set(
   cache =   FALSE,    # Cache chunk results
+  crop =    TRUE,     # Crop fig margins in pdf  
   include = TRUE,     # Show/Hide chunks
   echo =    TRUE,     # Show/Hide code
   warning = FALSE,    # Show/Hide warnings
@@ -80,7 +84,7 @@ knitr::opts_chunk$set(
   # Graphic devices (ragg_png is better than standard png)
   dev = c("ragg_png", "pdf"),
   # Code chunk format
-  tidy = TRUE, tidy.opts = list(blank=FALSE, width.cutoff=50),
+  tidy = FALSE, tidy.opts = list(blank=FALSE, width.cutoff=50),
   size = "scriptsize", knitr.graphics.auto_pdf = TRUE
   )
 options(width = 50)
@@ -120,7 +124,15 @@ L'indice peut être réécrit
 $${NCI}_i = \sum_j^{r_j \leq r_{max}}{d_j \alpha_j}.$$
 
 La contribution de chaque voisin est donc le produit de son angle apparent par son diamètre.
-On peut définir un diamètre équivalent $d_j^{eq}$ pour le voisin $j$ correspondant à un angle apparent $\alpha$ arbitrairement choisi, ce qui permet de caractériser chaque voisin par cette seule valeur telle que 
+
+Il n'y a pas de différence de contribution à l'encombrement entre un voisin de diamètre $d_j$ vu sous l'angle $\alpha_j$ et $n$ voisins de même diamètre $d_j$ vus sous l'angle $\alpha_j / n$, par exemple parce qu'ils sont $n$ fois plus loin.
+
+(ref:voisinage) Diamètre équivalent du voisin $j$ pour $\alpha = 2 \pi$.
+```{r voisinage, fig.cap="(ref:voisinage)", echo=FALSE}
+knitr::include_graphics("images/voisinage.png")
+```
+
+On peut définir (figure \@ref(fig:voisinage)) un diamètre équivalent $d_j^{eq}$ pour le voisin $j$ correspondant à un angle apparent $\alpha$ arbitrairement choisi, ce qui permet de caractériser chaque voisin par cette seule valeur telle que 
 
 $${NCI}_i = \alpha \sum_j^{r_j \leq r_{max}}{d_j^{eq}}$$
 
@@ -134,7 +146,8 @@ $${NCI}_i = \alpha d_i^{eq}.$$
 
 En choisissant $\alpha = 2 \pi$, on voit que chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = d_j^2 / (2 \pi r_j)$.
 
-Pour un rayon $r$ quelconque autour de l'arbre $i$, $2 \pi r d_i^{eq}$ est la surface de la couronne de largeur $d_i^{eq}$.
+Pour un rayon $r$ quelconque autour de l'arbre $i$, choisi arbitrairement en respectant seulement $r \gg d_i^{eq}$, $2 \pi r d_i^{eq}$ est la surface de la couronne de largeur $d_i^{eq}$ centrée sur $r$ (la différence de périmètre entre l'intérieur et l'extérieur de la couronne est négligeable, et la couronne peut être assimilée à un rectangle de longueur $2 \pi r$ et de largeur $d_i^{eq}$).
+
 L'indice d'encombrement divisé par $2 \pi$, c'est-à-dire  ${NCI}_i / (2 \pi) = d_i^{eq}$, est donc la largeur d'une couronne qui encercle totalement l'arbre de référence $i$ à une distance $r$  arbitraire.
 
 Sous l'hypothèse de la distribution complètement aléatoire des arbres, $d_i^{eq}$, comme ${NCI}_i$, est proportionnel à $r_{max}$.
@@ -142,7 +155,7 @@ Dit autrement, les arbres les plus lointains contribuent moins mais sont plus no
 La métrique la plus intéressante est donc
 
 $${RCR}_i = d_i^{eq} / r_{max},$$
-la proportion de l'espace (unidimensionnel) encombré par les voisins ("Radial Crowding Ratio").
+la proportion de l'espace (unidimensionnel) encombré par les voisins, noté $RCR_i$ pour *Radial Crowding Ratio*.
 
 
 # Application
@@ -157,6 +170,35 @@ library("dbmss")
 autoplot(Paracou6) + 
   ggplot2::labs(col = "Espèce", size = "Surface terrière")
 ```
+
+Traits, normalisés.
+
+```{r}
+# Read the traits
+read_csv2("data/traits.csv") %>% 
+  # Same species names as Paracou6
+  mutate(spName = paste(Family, spName, sep = "_")) %>% 
+  # Useless columns
+  select(-Family, -Genus) %>% 
+  # Standardize
+  mutate(
+    WSG = (WSG - mean(WSG)) / sd(WSG),
+    logSLA = (logSLA - mean(logSLA)) / sd(logSLA),
+    Height = (Height - mean(Height)) / sd(Height),
+    SeedMass = (SeedMass - mean(SeedMass)) / sd(SeedMass) 
+  ) ->
+  traits
+# Join the trait values to Paracou6 trees
+data.frame(spName = Paracou6$marks$PointType) %>% 
+  left_join(traits) %>% 
+  # Replace NA by 0 (= average value)
+  replace(is.na(.), 0) ->
+  Paracou6_traits
+# Add the traits to the marks. Eliminate spName column, identical to PointType
+Paracou6$marks <- cbind(Paracou6$marks, Paracou6_traits[, -1])
+```
+
+
 
 ## Fonction de calcul de NCI
 
@@ -178,7 +220,8 @@ NCI <- function(i, ppp, r_max = 10) {
   
   # Test inclusion
   if (!is.subset.owin(neighborhood$window, ppp$window)) {
-    return(NA)
+    # Return a vector of NA
+    return(rep(NA, 2 * ncol(neighborhood$marks) - 3))
   }
 
   # Distance from the center
@@ -195,10 +238,26 @@ NCI <- function(i, ppp, r_max = 10) {
   
   # Diameters
   d_j_squared <- neighborhood$marks$PointWeight * 4 / pi / 10000
+  # Normalized by distance. Eliminate center point.
+  NCI_i_neutral <- d_j_squared[is_not_center] / r_j[is_not_center]
   
+  # Traits: eliminate PointWeight and PointType
+  traits_neighbors <- neighborhood$marks[is_not_center, -(1:2)]
+  traits_center <- as.numeric(neighborhood$marks[!is_not_center, -(1:2)])
+  # Difference by row, needs transpositions
+  traits_difference <- t(t(traits_neighbors) - traits_center)
+  # Weighted by NCI_i_neutral
+  traits_difference_NCI <- traits_difference * NCI_i_neutral
+  traits_distance_NCI <- abs(traits_difference) * NCI_i_neutral
+  # Avoid suplicate names
+  colnames(traits_distance_NCI) <- paste("abs", colnames(traits_distance_NCI), sep = "_")
+
   return(
-    # Eliminate the center point
-    sum(d_j_squared[is_not_center] / r_j[is_not_center])
+    c(
+      sum(NCI_i_neutral), 
+      colSums(traits_difference_NCI),
+      colSums(traits_distance_NCI)
+    )
   )
 }
 ```
@@ -207,20 +266,21 @@ NCI <- function(i, ppp, r_max = 10) {
 
 ```{r}
 r_max <- 10
-# Compute NCI
+# Compute NCI. vapply returns a matrix. Trees are in columns.
 NCI_i <- vapply(
   seq_len(Paracou6$n), 
   FUN = NCI, 
-  FUN.VALUE = 0, 
-  #Arguments
-  ppp = Paracou6, 
+  FUN.VALUE = rep(0, 9), 
+  # Arguments.
+  # Jitter (1cm) to avoid superposed points
+  ppp = rjitter(Paracou6, radius = 0.01), 
   r_max = r_max
 )
-# Eliminate points close to edges
-NCI_i <- NCI_i[!is.na(NCI_i)]
+# Eliminate points close to edges: neutral NCI (first row) is NA.
+NCI_i <- NCI_i[, !is.na(NCI_i[1,])]
 
 # Equivalent d
-d_i_eq <- NCI_i / 2 / pi
+d_i_eq <- NCI_i[1, ] / 2 / pi
 
 # Crowding ratio
 RCR_i <- d_i_eq / r_max
@@ -247,16 +307,16 @@ r_max <- 20
 NCI_i_20 <- vapply(
   seq_len(Paracou6$n), 
   FUN = NCI, 
-  FUN.VALUE = 0, 
-  #Arguments
-  ppp = Paracou6, 
+  FUN.VALUE = rep(0, 9), 
+  # Jitter (1cm) to avoid superposed points
+  ppp = rjitter(Paracou6, radius = 0.01), 
   r_max = r_max
 )
-# Eliminate points close to edges
-NCI_i_20 <- NCI_i_20[!is.na(NCI_i_20)]
+# Eliminate points close to edges: neutral NCI (first row) is NA.
+NCI_i_20 <- NCI_i_20[, !is.na(NCI_i_20[1,])]
 
 # Equivalent d
-d_i_eq_20 <- NCI_i_20 / 2 / pi
+d_i_eq_20 <- NCI_i_20[1, ] / 2 / pi
 
 # Crowding ratio
 RCR_i_20 <- d_i_eq_20 / r_max
@@ -283,16 +343,16 @@ r_max <- 60
 NCI_i_60 <- vapply(
   seq_len(Paracou6$n), 
   FUN = NCI, 
-  FUN.VALUE = 0, 
-  #Arguments
-  ppp = Paracou6, 
+  FUN.VALUE = rep(0, 9), 
+  # Jitter (1cm) to avoid superposed points
+  ppp = rjitter(Paracou6, radius = 0.01), 
   r_max = r_max
 )
-# Eliminate points close to edges
-NCI_i_60 <- NCI_i_60[!is.na(NCI_i_60)]
+# Eliminate points close to edges: neutral NCI (first row) is NA.
+NCI_i_60 <- NCI_i_60[, !is.na(NCI_i_60[1,])]
 
 # Equivalent d
-d_i_eq_60 <- NCI_i_60 / 2 / pi
+d_i_eq_60 <- NCI_i_60[1, ] / 2 / pi
 
 # Crowding ratio
 RCR_i_60 <- d_i_eq_60 / r_max
@@ -307,3 +367,20 @@ abline(v = RCR_median_60, col = "red")
 Sa définition est indépendante du rayon du voisinage.
 Sa valeur dans la parcelle 6 est très stable : à 60m (voisinage > 1ha), sa médiane est `r format(RCR_median_60 * 1000, digits = 2)` pour mille.
 Le choix du rayon ne modifie donc pas l'encombrement moyen mais sa variabilité entre les arbres.
+
+# NCI non neutre
+
+Corrélation entre les indices d'encombrement.
+
+```{r}
+# Add a name to the first row of the NCIs
+rownames(NCI_i)[1] <- "Neutral"
+
+# Correlations
+library("corrplot")
+NCI_i %>% 
+  t %>% 
+  cor %>% 
+  corrplot
+```
+
