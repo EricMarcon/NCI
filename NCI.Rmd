@@ -100,7 +100,7 @@ knitr::opts_chunk$set(dev.args=list(bg="transparent"))
 set.seed(973)
 ```
 
-# NCI
+# NCI neutre
 
 ## Définition
 
@@ -201,6 +201,8 @@ Paracou6$marks <- cbind(Paracou6$marks, Paracou6_traits[, -1])
 
 
 ## Fonction de calcul de NCI
+
+La fonction `NCI()` calcule les indices d'encombrement neutre et non neutre (voir plus loin).
 
 ```{r}
 library("spatstat.geom")
@@ -370,7 +372,13 @@ Le choix du rayon ne modifie donc pas l'encombrement moyen mais sa variabilité 
 
 # NCI non neutre
 
-Corrélation entre les indices d'encombrement.
+## Corrélation avec NCI neutre
+
+Les NCI prenant en compte la différence et la hierarchie des traits sont calculés pour WSG, log(SLA), et les classes de hauteur (de l'espèce, pas des arbres de la parcelle) et de taille de graine.
+
+Les NCI hiérarchiques (pondérés par la différence des valeurs de traits standardisées) sont notés du nom du trait (ex.: "logSLA") et les NCI de différentiation de niche (pondérés par la valeur absolue de la différence) sont notés "abs_trait".
+
+Corrélation entre les indices d'encombrement:
 
 ```{r}
 # Add a name to the first row of the NCIs
@@ -384,3 +392,17 @@ NCI_i %>%
   corrplot
 ```
 
+Le NCI neutre est très corrélé avec les 4 NCI de différentiation et avec les NCI hiérarchique liés à WSG et SLA. 
+Les seuls NCI décorrélés sont ceux de la différentiation de niche liée à la hauteur et la masse des graines.
+
+## Interprétation géométrique
+
+L'interprétation est similaire à celle du NCI neutre.
+
+On note $\delta_j$ la différence (éventuellement en valeur absolue) entre les valeurs de trait du voisin $j$ et de son arbre de référence.
+
+Pour chaque voisin, $d_j^{eq} = \delta_j d_j \alpha_j / \alpha$.
+En choisissant $\alpha = 2 \pi$, chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = \delta_j d_j^2 / (2 \pi r_j)$.
+
+La définition ${RCR}_i = d_i^{eq} / r_{max}$ ne change pas.
+De même que $NCI_i$ peut être négatif, $d_i^{eq}$ et ${RCR}_i$ peuvent être négatifs.
