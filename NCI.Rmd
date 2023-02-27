@@ -171,38 +171,10 @@ autoplot(Paracou6) +
   ggplot2::labs(col = "Espèce", size = "Surface terrière")
 ```
 
-Traits, normalisés.
-
-```{r}
-# Read the traits
-read_csv2("data/traits.csv") %>% 
-  # Same species names as Paracou6
-  mutate(spName = paste(Family, spName, sep = "_")) %>% 
-  # Useless columns
-  select(-Family, -Genus) %>% 
-  # Standardize
-  mutate(
-    WSG = (WSG - mean(WSG)) / sd(WSG),
-    logSLA = (logSLA - mean(logSLA)) / sd(logSLA),
-    Height = (Height - mean(Height)) / sd(Height),
-    SeedMass = (SeedMass - mean(SeedMass)) / sd(SeedMass) 
-  ) ->
-  traits
-# Join the trait values to Paracou6 trees
-data.frame(spName = Paracou6$marks$PointType) %>% 
-  left_join(traits) %>% 
-  # Replace NA by 0 (= average value)
-  replace(is.na(.), 0) ->
-  Paracou6_traits
-# Add the traits to the marks. Eliminate spName column, identical to PointType
-Paracou6$marks <- cbind(Paracou6$marks, Paracou6_traits[, -1])
-```
-
-
 
 ## Fonction de calcul de NCI
 
-La fonction `NCI()` calcule les indices d'encombrement neutre et non neutre (voir plus loin).
+La fonction `NCI()` calcule l'indice d'encombrement neutre autour d'un arbre focal.
 
 ```{r}
 library("spatstat.geom")
@@ -213,10 +185,12 @@ library("spatstat.geom")
 #'
 #' @param i Index of a point of `ppp`.
 #' @param ppp A planar point pattern.
+#' @param distance_min The minimum distance of neighbors from the focal tree.
 #' @param r_max The radius of the neighborhood
 #'
-#' @return The crowding index, in meters.
-NCI <- function(i, ppp, r_max = 10) {
+#' @return The crowding index, in meters,
+#' or `NA` if the point is too close to the edge of the window. 
+NCI <- function(i, ppp, distance_min = 0.25, r_max = 10) {
   # Neighborhood
   neighborhood <- ppp[disc(radius = r_max, centre = c(ppp$x[i], ppp$y[i]))]
   
@@ -236,61 +210,63 @@ NCI <- function(i, ppp, r_max = 10) {
     FUN.VALUE = 0
   )
   r_j <- sqrt(r_j_squared)
+  # Set the minimum distance
+  r_j <- max(r_j, distance_min)
   is_not_center <- r_j != 0
   
   # Diameters
   d_j_squared <- neighborhood$marks$PointWeight * 4 / pi / 10000
-  # Normalized by distance. Eliminate center point.
+  # Normalized by distance. Eliminate the center point.
   NCI_i_neutral <- d_j_squared[is_not_center] / r_j[is_not_center]
   
-  # Traits: eliminate PointWeight and PointType
-  traits_neighbors <- neighborhood$marks[is_not_center, -(1:2)]
-  traits_center <- as.numeric(neighborhood$marks[!is_not_center, -(1:2)])
-  # Difference by row, needs transpositions
-  traits_difference <- t(t(traits_neighbors) - traits_center)
-  # Weighted by NCI_i_neutral
-  traits_difference_NCI <- traits_difference * NCI_i_neutral
-  traits_distance_NCI <- abs(traits_difference) * NCI_i_neutral
-  # Avoid suplicate names
-  colnames(traits_distance_NCI) <- paste("abs", colnames(traits_distance_NCI), sep = "_")
-
-  return(
-    c(
-      sum(NCI_i_neutral), 
-      colSums(traits_difference_NCI),
-      colSums(traits_distance_NCI)
-    )
-  )
+  return(sum(NCI_i_neutral))
 }
 ```
+
+La fonction `RCR()` calcule l'indice d'encombrement neutre.
+
+```{r}
+#' Relative Crowding Ratio
+#'
+#' @param ppp A planar point pattern.
+#' @param distance_min The minimum distance of neighbors from the focal tree.
+#' @param r_max The radius of the neighborhood
+#'
+#' @return A vector of relative crowding ratios of all points of `ppp` 
+#' that are far enough from the edge of the window.
+RCR <- function(ppp, distance_min = 0.25, r_max = 10) {
+  # Compute NCI. vapply returns a matrix. Trees are in columns.
+  NCI_i <- vapply(
+    seq_len(ppp$n), 
+    FUN = NCI,
+    FUN.VALUE = 0,
+    # Arguments
+    ppp = ppp,
+    distance_min = distance_min,
+    r_max = r_max
+  )
+  # Eliminate points close to edges: neutral NCI is NA.
+  NCI_i <- NCI_i[!is.na(NCI_i)]
+  
+  # Equivalent d
+  d_i_eq <- NCI_i / 2 / pi
+  
+  # Crowding ratio
+  return(d_i_eq / r_max)
+}
+```
+
 
 ## Calcul des NCI de la parcelle 6
 
 ```{r}
-r_max <- 10
-# Compute NCI. vapply returns a matrix. Trees are in columns.
-NCI_i <- vapply(
-  seq_len(Paracou6$n), 
-  FUN = NCI, 
-  FUN.VALUE = rep(0, 9), 
-  # Arguments.
-  # Jitter (1cm) to avoid superposed points
-  ppp = rjitter(Paracou6, radius = 0.01), 
-  r_max = r_max
-)
-# Eliminate points close to edges: neutral NCI (first row) is NA.
-NCI_i <- NCI_i[, !is.na(NCI_i[1,])]
-
-# Equivalent d
-d_i_eq <- NCI_i[1, ] / 2 / pi
-
-# Crowding ratio
-RCR_i <- d_i_eq / r_max
+# Compute crowding ratio
+RCR_Paracou6 <- RCR(Paracou6)
 
 # Distribution
-RCR_median <- median(RCR_i)
+RCR_median <- median(RCR_Paracou6)
 library("GoFKernel")
-plot(density.reflected(RCR_i, lower = 0), main = "")
+plot(density.reflected(RCR_Paracou6, lower = 0), main = "")
 abline(v = RCR_median, col = "red")
 ```
 
@@ -304,29 +280,12 @@ L'augmentation du rayon élimine des points proche de la bordure de la parcelle 
 On s'attend à ce que la médiane soit stable et la variabilité plus faible.
 
 ```{r}
-r_max <- 20
-# Compute NCI
-NCI_i_20 <- vapply(
-  seq_len(Paracou6$n), 
-  FUN = NCI, 
-  FUN.VALUE = rep(0, 9), 
-  # Jitter (1cm) to avoid superposed points
-  ppp = rjitter(Paracou6, radius = 0.01), 
-  r_max = r_max
-)
-# Eliminate points close to edges: neutral NCI (first row) is NA.
-NCI_i_20 <- NCI_i_20[, !is.na(NCI_i_20[1,])]
-
-# Equivalent d
-d_i_eq_20 <- NCI_i_20[1, ] / 2 / pi
-
-# Crowding ratio
-RCR_i_20 <- d_i_eq_20 / r_max
+# Compute crowding ratio
+RCR_Paracou6_20 <- RCR(Paracou6, r_max = 20)
 
 # Distribution
-RCR_median_20 <- median(RCR_i_20)
-library("GoFKernel")
-plot(density.reflected(RCR_i_20, lower = 0), main = "")
+RCR_median_20 <- median(RCR_Paracou6_20)
+plot(density.reflected(RCR_Paracou6_20, lower = 0), main = "")
 abline(v = RCR_median_20, col = "red")
 ```
 
@@ -337,72 +296,36 @@ La valeur médiane du ratio d'encombrement est maintenant `r format(RCR_median_2
 
 Le RCR permet d'interpréter l'indice d'encombrement.
 C'est la largeur (normalisée par le rayon du voisinage) d'une couronne autour du point de référence dont le NCI est identique à la valeur observée.
-Sa valeur est faible : de l'ordre de 3 pour mille.
+Sa valeur est faible : de l'ordre de 2 pour mille.
 
-```{r, include=FALSE}
-r_max <- 60
-# Compute NCI
-NCI_i_60 <- vapply(
-  seq_len(Paracou6$n), 
-  FUN = NCI, 
-  FUN.VALUE = rep(0, 9), 
-  # Jitter (1cm) to avoid superposed points
-  ppp = rjitter(Paracou6, radius = 0.01), 
-  r_max = r_max
-)
-# Eliminate points close to edges: neutral NCI (first row) is NA.
-NCI_i_60 <- NCI_i_60[, !is.na(NCI_i_60[1,])]
-
-# Equivalent d
-d_i_eq_60 <- NCI_i_60[1, ] / 2 / pi
-
-# Crowding ratio
-RCR_i_60 <- d_i_eq_60 / r_max
+```{r}
+# Compute crowding ratio
+RCR_Paracou6_60 <- RCR(Paracou6, r_max = 60)
 
 # Distribution
-RCR_median_60 <- median(RCR_i_60)
-library("GoFKernel")
-plot(density.reflected(RCR_i_60, lower = 0), main = "")
-abline(v = RCR_median_60, col = "red")
+RCR_median_60 <- median(RCR_Paracou6_60)
 ```
+
 
 Sa définition est indépendante du rayon du voisinage.
 Sa valeur dans la parcelle 6 est très stable : à 60m (voisinage > 1ha), sa médiane est `r format(RCR_median_60 * 1000, digits = 2)` pour mille.
 Le choix du rayon ne modifie donc pas l'encombrement moyen mais sa variabilité entre les arbres.
 
+
 # NCI non neutre
 
-## Corrélation avec NCI neutre
+## Définition
 
-Les NCI prenant en compte la différence et la hierarchie des traits sont calculés pour WSG, log(SLA), et les classes de hauteur (de l'espèce, pas des arbres de la parcelle) et de taille de graine.
+L'indice d'encombrement du voisinage de l'arbre $i$ est défini par
 
-Les NCI hiérarchiques (pondérés par la différence des valeurs de traits standardisées) sont notés du nom du trait (ex.: "logSLA") et les NCI de différentiation de niche (pondérés par la valeur absolue de la différence) sont notés "abs_trait".
-
-Corrélation entre les indices d'encombrement:
-
-```{r}
-# Add a name to the first row of the NCIs
-rownames(NCI_i)[1] <- "Neutral"
-
-# Correlations
-library("corrplot")
-NCI_i %>% 
-  t %>% 
-  cor %>% 
-  corrplot
-```
-
-Le NCI neutre est très corrélé avec les 4 NCI de différentiation et avec les NCI hiérarchique liés à WSG et SLA. 
-Les seuls NCI décorrélés sont ceux de la différentiation de niche liée à la hauteur et la masse des graines.
+$${NCI}_i = \sum_j^{r_j \leq r_{max}}{\lambda_j d_j^2 / r_j}.$$
 
 ## Interprétation géométrique
 
 L'interprétation est similaire à celle du NCI neutre.
 
-On note $\delta_j$ la différence (éventuellement en valeur absolue) entre les valeurs de trait du voisin $j$ et de son arbre de référence.
-
-Pour chaque voisin, $d_j^{eq} = \delta_j d_j \alpha_j / \alpha$.
-En choisissant $\alpha = 2 \pi$, chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = \delta_j d_j^2 / (2 \pi r_j)$.
+Pour chaque voisin, $d_j^{eq} = \lambda_j d_j \alpha_j / \alpha$.
+En choisissant $\alpha = 2 \pi$, chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = \lambda_j d_j^2 / (2 \pi r_j)$.
 
 La définition ${RCR}_i = d_i^{eq} / r_{max}$ ne change pas.
 De même que $NCI_i$ peut être négatif, $d_i^{eq}$ et ${RCR}_i$ peuvent être négatifs.
