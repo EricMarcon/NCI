@@ -155,7 +155,7 @@ Dit autrement, les arbres les plus lointains contribuent moins mais sont plus no
 La métrique la plus intéressante est donc
 
 $${RCR}_i = d_i^{eq} / r_{max},$$
-la proportion de l'espace (unidimensionnel) encombré par les voisins, noté $RCR_i$ pour *Radial Crowding Ratio*.
+la proportion de l'espace (unidimensionnel) encombré par les voisins, noté ${RCR}_i$ pour *Radial Crowding Ratio*.
 
 
 # Application
@@ -298,7 +298,7 @@ Le RCR permet d'interpréter l'indice d'encombrement.
 C'est la largeur (normalisée par le rayon du voisinage) d'une couronne autour du point de référence dont le NCI est identique à la valeur observée.
 Sa valeur est faible : de l'ordre de 2 pour mille.
 
-```{r}
+```{r, include=FALSE}
 # Compute crowding ratio
 RCR_Paracou6_60 <- RCR(Paracou6, r_max = 60)
 
