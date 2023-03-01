@@ -354,3 +354,5 @@ By choosing $\alpha = 2 \pi$, each neighbour $j$ contributes to ${NCI}_i$ as if 
 
 The definition ${RCR}_i = d_i^{eq} / r_{max}$ does not change.
 Just as $NCI_i$ can be negative, $d_i^{eq}$ and ${RCR}_i$ can be negative.
+
+`r if (knitr:::is_html_output()) '# References {-}'`
