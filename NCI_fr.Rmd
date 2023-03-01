@@ -104,24 +104,24 @@ set.seed(973)
 
 ## Définition
 
-L'indice d'encombrement du voisinage de l'arbre $i$ est défini par
+L'indice d'encombrement du voisinage de l'arbre (dit "focal") $i$ est défini par
 
-$${NCI}_i = \sum_j^{r_j \leq r_{max}}{d_j^2 / r_j}.$$
+$${NCI}_i = \sum_j^{r_{i,j} \leq r_{max}}{d_j^2 / r_{i,j}}.$$
 
-où les voisins indicés par $j$ situés à la distance $r_j$ de l'arbre de référence (inférieur à $r_{max}$ fixé à 10m) ont pour diamètre $d_j$.
+où les voisins indicés par $j$ situés à la distance $r_{i,j}$ de l'arbre de référence (inférieur à $r_{max}$ fixé à 10m) ont pour diamètre $d_j$.
 
 Sa dimension est une distance : $m^2 m^{-1}$.
 
 
 ## Reformulation
 
-$d_j / r_j$ est la tangente de l'angle apparent $\alpha_j$ du  voisin $j$ du point de vue de l'arbre de référence.
+$d_j / r_{i,j}$ est la tangente de l'angle apparent $\alpha_j$ du  voisin $j$ du point de vue de l'arbre de référence.
 
 Comme les angles sont petits, l'approximation $\alpha_j \approx \tan(\alpha_j)$ est valide.
 
 L'indice peut être réécrit
 
-$${NCI}_i = \sum_j^{r_j \leq r_{max}}{d_j \alpha_j}.$$
+$${NCI}_i = \sum_j^{r_{i,j} \leq r_{max}}{d_j \alpha_j}.$$
 
 La contribution de chaque voisin est donc le produit de son angle apparent par son diamètre.
 
@@ -134,7 +134,7 @@ knitr::include_graphics("images/voisinage.png")
 
 On peut définir (figure \@ref(fig:voisinage)) un diamètre équivalent $d_j^{eq}$ pour le voisin $j$ correspondant à un angle apparent $\alpha$ arbitrairement choisi, ce qui permet de caractériser chaque voisin par cette seule valeur telle que 
 
-$${NCI}_i = \alpha \sum_j^{r_j \leq r_{max}}{d_j^{eq}}$$
+$${NCI}_i = \alpha \sum_j^{r_{i,j} \leq r_{max}}{d_j^{eq}}$$
 
 où $d_j^{eq} = d_j \alpha_j / \alpha$.
 
@@ -144,7 +144,7 @@ $${NCI}_i = \alpha d_i^{eq}.$$
 
 ## Interprétation
 
-En choisissant $\alpha = 2 \pi$, on voit que chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = d_j^2 / (2 \pi r_j)$.
+En choisissant $\alpha = 2 \pi$, on voit que chaque voisin $j$ contribue à ${NCI}_i$ comme si son angle apparent était le cercle complet et que son diamètre était $d_j^{eq} = d_j^2 / (2 \pi r_{i,j})$.
 
 Pour un rayon $r$ quelconque autour de l'arbre $i$, choisi arbitrairement en respectant seulement $r \gg d_i^{eq}$, $2 \pi r d_i^{eq}$ est la surface de la couronne de largeur $d_i^{eq}$ centrée sur $r$ (la différence de périmètre entre l'intérieur et l'extérieur de la couronne est négligeable, et la couronne peut être assimilée à un rectangle de longueur $2 \pi r$ et de largeur $d_i^{eq}$).
 
@@ -156,6 +156,18 @@ La métrique la plus intéressante est donc
 
 $${RCR}_i = d_i^{eq} / r_{max},$$
 la proportion de l'espace (unidimensionnel) encombré par les voisins, noté ${RCR}_i$ pour *Radial Crowding Ratio*.
+
+
+## Correction des effets de bord
+
+Les arbres focaux dont la distance au bord de la fenêtre d'observation (c'est-à-dire des limites de la parcelle forestière) est inférieure à $r_{max}$ sont généralement ignorés parce qu'une partie de leur voisinage n'est pas observée, ce qui entraîne une sous-estimation de son encombrement.
+
+La correction de @Ripley1977 peut être appliquée pour estimer la valeur non observée du NCI.
+La contribution au NCI de chaque arbre voisin observé à la distance $r_{i,j}$ est multipliée par un facteur correctif
+$$\mathrm{c}_{i,j}=\frac{2 \pi r}{\mathrm{l}(\mathrm{C}(i, r_{i,j}) \cap W)}$$
+où $\mathrm{l(\cdot)}$ est la longueur de la partie du cercle $\mathrm{C}(i, r_{i,j})$ centré sur le point $i$ et de rayon $r_{i,j}$ avec la fenêtre d'observation $W$.
+
+Intuitivement, chaque voisin observé à une distance assez grande du point focal pour qu'une partie du cercle sur lequel il se trouve soit hors de la parcelle voit sa contribution augmentée inversement proportionnellement à la partie du cercle contenue dans la parcelle, comme si autant de voisins existaient dans la partie non observée que dans la partie observée.
 
 
 # Application
@@ -191,7 +203,8 @@ library("spatstat.geom")
 #' else `NA` is returned for points too close to the edge of the window.
 #'
 #' @return The crowding index, in meters,
-#' or `NA` if the point is too close to the edge of the window. 
+#' or `NA` if the point is too close to the edge of the window.
+#' 
 NCI <- function(i, ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRUE) {
   # Neighborhood
   neighborhood <- ppp[disc(radius = r_max, centre = c(ppp$x[i], ppp$y[i]))]
@@ -203,8 +216,13 @@ NCI <- function(i, ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = 
   }
 
   # Which is the center point?          
-  center_point <- which(neighborhood$x == ppp$x[i] & neighborhood$y == ppp$y[i])
-  # Keep only one if several points have the same coordinates
+  center_point <- which(
+    neighborhood$x == ppp$x[i] & 
+    neighborhood$y == ppp$y[i] &
+    neighborhood$marks$PointWeight == ppp$marks$PointWeight[i] & 
+    neighborhood$marks$PointType == ppp$marks$PointType[i]
+  )
+  # Keep only one if several identical points have the same coordinates (unlikely)
   center_point <- center_point[1]
   # Distance from the center
   r_j <- pairdist(neighborhood)[, center_point]
@@ -237,12 +255,12 @@ La fonction `RCR()` calcule l'indice d'encombrement neutre.
 #'
 #' @param ppp A planar point pattern.
 #' @param distance_min The minimum distance of neighbors from the focal tree.
-#' @param r_max The radius of the neighborhood
+#' @param r_max The radius of the neighborhood.
 #' @param correct_edge_effects If `TRUE`, the Ripley correction of edge effects is applied,
-#' else `NA` is returned for points too close to the edge of the window.
+#' points too close to the edge of the window are eliminated.
 #'
-#' @return A vector of relative crowding ratios of all points of `ppp` 
-#' that are far enough from the edge of the window.
+#' @return A vector of relative crowding ratios of all points of `ppp`.
+#' 
 RCR <- function(ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRUE) {
   # Compute NCI. vapply returns a matrix. Trees are in columns.
   NCI_i <- vapply(
@@ -326,8 +344,10 @@ Le choix du rayon ne modifie donc pas l'encombrement moyen mais sa variabilité 
 ## Définition
 
 L'indice d'encombrement du voisinage de l'arbre $i$ est défini par
+$${NCI}_i = \sum_j^{r_j \leq r_{max}}{\lambda_{i,j} d_j^2 / r_j},$$
+où $\lambda_{i,j}$ est une pondération dépendant de l'hypothèse testée. 
+Par exemple, $\lambda_{i,j}$ peut être la différence absolue entre les valeurs d'un trait fonctionnel de l'arbre $j$ et de l'arbre focal $i$ pour prendre en compte la proximité de niches des voisins.
 
-$${NCI}_i = \sum_j^{r_j \leq r_{max}}{\lambda_j d_j^2 / r_j}.$$
 
 ## Interprétation géométrique
 
