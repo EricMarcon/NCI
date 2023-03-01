@@ -248,7 +248,7 @@ NCI <- function(i, ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = 
 }
 ```
 
-La fonction `RCR()` calcule l'indice d'encombrement neutre.
+La fonction `RCR()` calcule l'indice d'encombrement neutre de tous les arbres d'une parcelle.
 
 ```{r}
 #' Relative Crowding Ratio
