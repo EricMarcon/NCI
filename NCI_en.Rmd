@@ -102,7 +102,7 @@ set.seed(973)
 
 ## Definition
 
-The clutter index of the tree neighbourhood (called focal") $i$ is defined by
+The crowding index of the tree neighbourhood (called focal") $i$ is defined by
 
 $${NCI}_i = \sum_j^{r_{i,j} \leq r_{max}}{d_j^2 / r_{i,j}}.$$
 
@@ -121,7 +121,7 @@ $${NCI}_i = \sum_j^{r_{i,j} \leq r_{max}}{d_j \alpha_j}.$$
 
 The contribution of each neighbour is therefore the product of its apparent angle and its diameter.
 
-There is no difference in the contribution to the clutter between a neighbour of diameter $d_j$ seen under the angle $\alpha_j$ and $n$ neighbours of the same diameter $d_j$ seen under the angle $\alpha_j / n$, for example because they are $n$ times further away.
+There is no difference in the contribution to the crowding between a neighbour of diameter $d_j$ seen under the angle $\alpha_j$ and $n$ neighbours of the same diameter $d_j$ seen under the angle $\alpha_j / n$, for example because they are $n$ times further away.
 
 (ref:voisinage) Equivalent diameter of neighbour $j$ for $\alpha = 2 \pi$.
 ```{r voisinage, fig.cap="(ref:voisinage)", echo=FALSE}
@@ -183,7 +183,7 @@ autoplot(Paracou6) +
 
 ## NCI calculation function
 
-The `NCI()` function calculates the neutral clutter index around a focal tree.
+The `NCI()` function calculates the neutral crowding index around a focal tree.
 
 ```{r}
 library("spatstat.geom")
@@ -245,7 +245,7 @@ NCI <- function(i, ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = 
 }
 ```
 
-The `RCR()` function calculates the neutral clutter index of all trees of a plot.
+The `RCR()` function calculates the neutral crowding index of all trees of a plot.
 
 ```{r}
 #' Relative Crowding Ratio
@@ -318,7 +318,7 @@ The median value of the crowding ratio is now `r format(RCR_median_20 * 1000, di
 
 ## Conclusion
 
-The RCR is used to interpret the clutter index.
+The RCR is used to interpret the crowding index.
 It is the width (normalised by the neighbourhood radius) of a ring around the reference point whose NCI is identical to the observed value.
 Its value is small: of the order of 3 to 4 per thousand.
 
@@ -339,7 +339,7 @@ The choice of radius does not therefore modify the average crowding but its vari
 
 ## Definition
 
-The clutter index of the neighbourhood of tree $i$ is defined by
+The crowding index of the neighbourhood of tree $i$ is defined by
 $${NCI}_i = \sum_j^{r_j \leq r_{max}}{\lambda_{i,j} d_j^2 / r_j},$$
 where $\lambda_{i,j}$ is a weighting depending on the hypothesis being tested. 
 For example, $\lambda_{i,j}$ can be the absolute difference between the values of a functional trait of the $j$ tree and the $i$ focal tree to take into account the proximity of niches of neighbours.
