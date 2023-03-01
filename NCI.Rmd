@@ -64,7 +64,7 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 ```{r Options, include=FALSE}
 ### Customized options for this document
 # Add necessary packages here
-Packages <- c("tidyverse", "dbmss", "GoFKernel", "magick", "corrplot")
+Packages <- c("tidyverse", "dbmss", "GoFKernel", "magick", "corrplot", "spatstat.explore")
 # Install them
 InstallPackages(Packages)
 
@@ -187,37 +187,44 @@ library("spatstat.geom")
 #' @param ppp A planar point pattern.
 #' @param distance_min The minimum distance of neighbors from the focal tree.
 #' @param r_max The radius of the neighborhood
+#' @param correct_edge_effects If `TRUE`, the Ripley correction of edge effects is applied,
+#' else `NA` is returned for points too close to the edge of the window.
 #'
 #' @return The crowding index, in meters,
 #' or `NA` if the point is too close to the edge of the window. 
-NCI <- function(i, ppp, distance_min = 0.25, r_max = 10) {
+NCI <- function(i, ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRUE) {
   # Neighborhood
   neighborhood <- ppp[disc(radius = r_max, centre = c(ppp$x[i], ppp$y[i]))]
   
-  # Test inclusion
-  if (!is.subset.owin(neighborhood$window, ppp$window)) {
-    # Return a vector of NA
-    return(rep(NA, 2 * ncol(neighborhood$marks) - 3))
+  # Too close to the edge?
+  is_too_close <- !is.subset.owin(neighborhood$window, ppp$window)
+  if (is_too_close & !correct_edge_effects) {
+    return(NA)
   }
 
+  # Which is the center point?          
+  center_point <- which(neighborhood$x == ppp$x[i] & neighborhood$y == ppp$y[i])
+  # Keep only one if several points have the same coordinates
+  center_point <- center_point[1]
   # Distance from the center
-  r_j_squared <- vapply(
-    # Each point j
-    seq_len(neighborhood$n),
-    FUN = function(j) {
-      (neighborhood$x[j] - ppp$x[i])^2 + (neighborhood$y[j] - ppp$y[i])^2
-    }, 
-    FUN.VALUE = 0
-  )
-  r_j <- sqrt(r_j_squared)
+  r_j <- pairdist(neighborhood)[, center_point]
+  # Eliminate the center point
+  r_j <- r_j[-center_point]
   # Set the minimum distance
-  r_j <- max(r_j, distance_min)
-  is_not_center <- r_j != 0
-  
+  r_j <- pmax (r_j, distance_min)
+
   # Diameters
   d_j_squared <- neighborhood$marks$PointWeight * 4 / pi / 10000
-  # Normalized by distance. Eliminate the center point.
-  NCI_i_neutral <- d_j_squared[is_not_center] / r_j[is_not_center]
+  # Eliminate the center point
+  d_j_squared <- d_j_squared[-center_point]
+  # Normalized by distance.
+  NCI_i_neutral <- d_j_squared / r_j
+  
+  # Edge effect correction
+  if (is_too_close) {
+    correction <- as.numeric(edge.Ripley(neighborhood[-center_point], r_j))
+    NCI_i_neutral <- NCI_i_neutral * correction
+  }
   
   return(sum(NCI_i_neutral))
 }
@@ -231,10 +238,12 @@ La fonction `RCR()` calcule l'indice d'encombrement neutre.
 #' @param ppp A planar point pattern.
 #' @param distance_min The minimum distance of neighbors from the focal tree.
 #' @param r_max The radius of the neighborhood
+#' @param correct_edge_effects If `TRUE`, the Ripley correction of edge effects is applied,
+#' else `NA` is returned for points too close to the edge of the window.
 #'
 #' @return A vector of relative crowding ratios of all points of `ppp` 
 #' that are far enough from the edge of the window.
-RCR <- function(ppp, distance_min = 0.25, r_max = 10) {
+RCR <- function(ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRUE) {
   # Compute NCI. vapply returns a matrix. Trees are in columns.
   NCI_i <- vapply(
     seq_len(ppp$n), 
@@ -296,7 +305,7 @@ La valeur médiane du ratio d'encombrement est maintenant `r format(RCR_median_2
 
 Le RCR permet d'interpréter l'indice d'encombrement.
 C'est la largeur (normalisée par le rayon du voisinage) d'une couronne autour du point de référence dont le NCI est identique à la valeur observée.
-Sa valeur est faible : de l'ordre de 2 pour mille.
+Sa valeur est faible : de l'ordre de 3 à 4 pour mille.
 
 ```{r, include=FALSE}
 # Compute crowding ratio
