@@ -160,7 +160,7 @@ Focal trees whose distance to the edge of the observation window (i.e., forest p
 The correction of @Ripley1977 can be applied to estimate the unobserved value of the NCI.
 The contribution to the NCI of each neighbouring tree observed at distance $r_{i,j}$ is multiplied by a correction factor
 
-$$mathrm{c}_{i,j}=$frac{2 \pi r}{\mathrm{l}(\mathrm{C}(i, r_{i,j}) \cap W)}$$
+$$\mathrm{c}_{i,j} = \frac{2 \pi r}{\mathrm{l}(\mathrm{C}(i, r_{i,j}) \cap W)}$$
 
 where $\mathrm{l(\cdot)}$ is the length of the part of the circle $\mathrm{C}(i, r_{i,j})$ centred on the point $i$ and of radius $r_{i,j}$ with the observation window $W$.
 
