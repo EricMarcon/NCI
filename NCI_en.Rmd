@@ -177,7 +177,7 @@ Paracou plot 6::
 load("data/Paracou6.rda")
 library("dbmss")
 autoplot(Paracou6) + 
-  ggplot2::labs(col = "Espèce", size = "Surface terrière")
+  ggplot2::labs(col = "Species", size = "Basal Area")
 ```
 
 
