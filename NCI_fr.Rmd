@@ -30,7 +30,9 @@ output:
     lightbox: yes
 ---
 
-```{r DoNotModify, include=FALSE}
+```{r}
+#| label: DoNotModify
+#| include: false
 ### Utilities. Do not modify.
 # Installation of packages if necessary
 InstallPackages <- function(Packages) {
@@ -45,14 +47,6 @@ InstallPackages <- function(Packages) {
 # Basic packages
 InstallPackages(c("bookdown", "formatR", "kableExtra", "ragg"))
 
-# kableExtra must be loaded 
-if (knitr::opts_knit$get("rmarkdown.pandoc.to") == "docx") {
-  # Word output (https://stackoverflow.com/questions/35144130/in-knitr-how-can-i-test-for-if-the-output-will-be-pdf-or-word)
-  # Do not use autoformat (https://github.com/haozhu233/kableExtra/issues/308)
-  options(kableExtra.auto_format = FALSE)
-}
-library("kableExtra")
-
 # Chunk font size hook: allows size='small' or any valid Latex font size in chunk options
 def.chunk.hook  <- knitr::knit_hooks$get("chunk")
 knitr::knit_hooks$set(chunk = function(x, options) {
@@ -61,7 +55,9 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 })
 ```
 
-```{r Options, include=FALSE}
+```{r}
+#| label: Options
+#| include: false
 ### Customized options for this document
 # Add necessary packages here
 Packages <- c("tidyverse", "dbmss", "GoFKernel", "magick", "corrplot", "spatstat.explore")
@@ -73,7 +69,7 @@ InstallPackages(Packages)
 knitr::knit_hooks$set(crop = knitr::hook_pdfcrop)
 # knitr options
 knitr::opts_chunk$set(
-  cache =   FALSE,    # Cache chunk results
+  cache =   TRUE,     # Cache chunk results
   crop =    TRUE,     # Crop fig margins in pdf  
   include = TRUE,     # Show/Hide chunks
   echo =    TRUE,     # Show/Hide code
@@ -104,7 +100,7 @@ set.seed(973)
 
 ## Définition
 
-L'indice d'encombrement du voisinage de l'arbre (dit "focal") $i$ est défini par
+L'indice d'encombrement du voisinage de l'arbre (dit "focal") $i$ est défini [@Nemetschek2024] par
 
 $${NCI}_i = \sum_j^{r_{i,j} \leq r_{max}}{d_j^2 / r_{i,j}}.$$
 
@@ -177,10 +173,17 @@ Intuitivement, chaque voisin observé à une distance assez grande du point foca
 Parcelle 6 de Paracou:
 
 ```{r}
-load("data/Paracou6.rda")
+#| message: false
+library("tidyverse")
+read_csv2("data/Paracou6.csv") ->
+  paracou_6
+# Map
 library("dbmss")
-autoplot(Paracou6) + 
-  ggplot2::labs(col = "Espèce", size = "Surface terrière")
+paracou_6 %>% 
+  rename(X = Xfield, Y = Yfield, PointType = spName, PointWeight = CircCorr) %>% 
+  wmppp() %>% 
+  autoplot() + 
+  ggplot2::labs(col = "Species", size = "Circumference")
 ```
 
 
@@ -189,62 +192,110 @@ autoplot(Paracou6) +
 La fonction `NCI()` calcule l'indice d'encombrement neutre autour d'un arbre focal.
 
 ```{r}
+#| message: false
 library("spatstat.geom")
+library("cli")
 
 #' NCI
 #' 
-#' Calculate NCI of point i
+#' Calculate the NCI of point i
 #'
-#' @param i Index of a point of `ppp`.
-#' @param ppp A planar point pattern.
+#' @param data Paracou style dataframe. 
+#' Mandatory fields are idTree, Xfield, Yfield, CircCorr.
+#' Contains a single measure campaign of a single plot.
+#' @param plot_area The area (ha) of the plot that contains the data.
+#' The plot is assumed to be square.
+#' @param method The form of the NCI. 
+#' May be "inv" for inverse distance, "invsq" for inverse distance to the square or "exp" for exponential decay.
 #' @param distance_min The minimum distance of neighbors from the focal tree.
-#' @param r_max The radius of the neighborhood
+#' Distances zero are forced to the minimum.
+#' @param r_max The radius of the neighborhood.
+#' @param u The decay rate of the exponential model: a negative value.
 #' @param correct_edge_effects If `TRUE`, the Ripley correction of edge effects is applied,
 #' else `NA` is returned for points too close to the edge of the window.
 #'
 #' @return The crowding index, in meters,
 #' or `NA` if the point is too close to the edge of the window.
 #' 
-NCI <- function(i, ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRUE) {
-  # Neighborhood
-  neighborhood <- ppp[disc(radius = r_max, centre = c(ppp$x[i], ppp$y[i]))]
+NCI <- function(
+    data, 
+    plot_area = 6.25, 
+    method = c("inv", "invsq", "exp"), 
+    distance_min = 0.25, 
+    r_max = 10, 
+    u = -0.25, 
+    correct_edge_effects = TRUE) {
   
-  # Too close to the edge?
-  is_too_close <- !is.subset.owin(neighborhood$window, ppp$window)
-  if (is_too_close & !correct_edge_effects) {
-    return(NA)
-  }
-
-  # Which is the center point?          
-  center_point <- which(
-    neighborhood$x == ppp$x[i] & 
-    neighborhood$y == ppp$y[i] &
-    neighborhood$marks$PointWeight == ppp$marks$PointWeight[i] & 
-    neighborhood$marks$PointType == ppp$marks$PointType[i]
+  method <- match.arg(method) 
+  
+  # Define the square window
+  window_size <- 100 * sqrt(plot_area)
+  the_window <- square(window_size, unitname = c("meter", "meters"))
+  
+  # Filter points inside the window
+  data  %>% 
+    filter(Xfield >= 0 & Yfield >= 0 & Xfield <= window_size & Yfield <= window_size) ->
+    data
+  
+  # Make a ppp
+  the_ppp <- ppp(
+    data$Xfield, 
+    data$Yfield, 
+    window = the_window
   )
-  # Keep only one if several identical points have the same coordinates (unlikely)
-  center_point <- center_point[1]
-  # Distance from the center
-  r_j <- pairdist(neighborhood)[, center_point]
-  # Eliminate the center point
-  r_j <- r_j[-center_point]
-  # Set the minimum distance
-  r_j <- pmax (r_j, distance_min)
+  # id as mark
+  marks(the_ppp) <- data.frame(
+    id = data$idTree, 
+    diameter = data$CircCorr / pi / 100
+  )
+  
+  # Compute NCI
+  the_NCI <- numeric(the_ppp$n)
+  cli_progress_bar("Computing neighborhoods", total = the_ppp$n)
+  for (i in seq_len(the_ppp$n)) {
+    # Neighborhood
+    neighborhood <- the_ppp[disc(radius = r_max, centre = c(the_ppp$x[i], the_ppp$y[i]))]
+    # Too close to the edge?
+    is_too_close <- !is.subset.owin(neighborhood$window, the_ppp$window)
+    if (is_too_close & !correct_edge_effects) {
+      the_NCI[i] <- NA
+      next
+    }
+    # Which is the center point?          
+    center_point <- which(neighborhood$marks$id == the_ppp$marks$id[i])
+    # Distance from the center
+    r_j <- pairdist(neighborhood)[, center_point]
+    # Eliminate the center point
+    r_j <- r_j[-center_point]
+    # Set the minimum distance
+    r_j <- pmax(r_j, distance_min)
+  
+    # Diameters
+    d_j_squared <- neighborhood$marks$diameter^2
+    # Eliminate the center point
+    d_j_squared <- d_j_squared[-center_point]
 
-  # Diameters
-  d_j_squared <- neighborhood$marks$PointWeight * 4 / pi / 10000
-  # Eliminate the center point
-  d_j_squared <- d_j_squared[-center_point]
-  # Normalized by distance.
-  NCI_i_neutral <- d_j_squared / r_j
-  
-  # Edge effect correction
-  if (is_too_close) {
-    correction <- as.numeric(edge.Ripley(neighborhood[-center_point], r_j))
-    NCI_i_neutral <- NCI_i_neutral * correction
+    if (method == "inv") {
+      # Normalized by distance
+      NCI_i_neutral <- d_j_squared / r_j
+    } else if (method == "invsq") {
+      # Normalized by squared distance
+      NCI_i_neutral <- d_j_squared / r_j^2
+    } else if (method == "exp") {
+      # Negative exponential
+      NCI_i_neutral <- d_j_squared * exp(u * r_j)
+    }
+    # Edge effect correction
+    if (is_too_close) {
+      correction <- as.numeric(edge.Ripley(neighborhood[-center_point], r_j))
+      NCI_i_neutral <- NCI_i_neutral * correction
+    }
+    # Sum neighbors
+    the_NCI[i] <- sum(NCI_i_neutral)
+    cli_progress_update()
   }
-  
-  return(sum(NCI_i_neutral))
+  cli_progress_done()
+  return(the_NCI)
 }
 ```
 
@@ -261,25 +312,27 @@ La fonction `RCR()` calcule l'indice d'encombrement neutre de tous les arbres d'
 #'
 #' @return A vector of relative crowding ratios of all points of `ppp`.
 #' 
-RCR <- function(ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRUE) {
-  # Compute NCI. vapply returns a matrix. Trees are in columns.
-  NCI_i <- vapply(
-    seq_len(ppp$n), 
-    FUN = NCI,
-    FUN.VALUE = 0,
-    # Arguments
-    ppp = ppp,
+RCR <- function(
+    data, 
+    plot_area = 6.25, 
+    method = c("inv", "invsq", "exp"), 
+    distance_min = 0.25, 
+    r_max = 10, 
+    u = -0.25, 
+    correct_edge_effects = TRUE) {
+  
+  # Compute NCI
+  the_NCI <- NCI(
+    data = data,
+    plot_area = plot_area,
+    method = method,
     distance_min = distance_min,
-    r_max = r_max
+    r_max = r_max,
+    u = u,
+    correct_edge_effects = correct_edge_effects
   )
-  # Eliminate points close to edges: neutral NCI is NA.
-  NCI_i <- NCI_i[!is.na(NCI_i)]
-  
-  # Equivalent d
-  d_i_eq <- NCI_i / 2 / pi
-  
   # Crowding ratio
-  return(d_i_eq / r_max)
+  return(the_NCI / 2 / pi / r_max)
 }
 ```
 
@@ -287,13 +340,14 @@ RCR <- function(ppp, distance_min = 0.25, r_max = 10, correct_edge_effects = TRU
 ## Calcul des NCI de la parcelle 6
 
 ```{r}
-# Compute crowding ratio
-RCR_Paracou6 <- RCR(Paracou6)
+# Compute RCR
+paracou_6_RCR_10 <- RCR(paracou_6, r_max = 10)
+
 
 # Distribution
-RCR_median <- median(RCR_Paracou6)
+RCR_median <- median(paracou_6_RCR_10, na.rm = TRUE)
 library("GoFKernel")
-plot(density.reflected(RCR_Paracou6, lower = 0), main = "")
+plot(density.reflected(paracou_6_RCR_10, lower = 0, na.rm = TRUE), main = "")
 abline(v = RCR_median, col = "red")
 ```
 
@@ -308,11 +362,11 @@ On s'attend à ce que la médiane soit stable et la variabilité plus faible.
 
 ```{r}
 # Compute crowding ratio
-RCR_Paracou6_20 <- RCR(Paracou6, r_max = 20)
+paracou_6_RCR_20 <- RCR(paracou_6, r_max = 20)
 
 # Distribution
-RCR_median_20 <- median(RCR_Paracou6_20)
-plot(density.reflected(RCR_Paracou6_20, lower = 0), main = "")
+RCR_median_20 <- median(paracou_6_RCR_20, na.rm = TRUE)
+plot(density.reflected(paracou_6_RCR_20, lower = 0, na.rm = TRUE), main = "")
 abline(v = RCR_median_20, col = "red")
 ```
 
@@ -325,12 +379,13 @@ Le RCR permet d'interpréter l'indice d'encombrement.
 C'est la largeur (normalisée par le rayon du voisinage) d'une couronne autour du point de référence dont le NCI est identique à la valeur observée.
 Sa valeur est faible : de l'ordre de 3 à 4 pour mille.
 
-```{r, include=FALSE}
+```{r}
+#| include: false
 # Compute crowding ratio
-RCR_Paracou6_60 <- RCR(Paracou6, r_max = 60)
+paracou_6_RCR_60 <- RCR(paracou_6, r_max = 60)
 
 # Distribution
-RCR_median_60 <- median(RCR_Paracou6_60)
+RCR_median_60 <- median(paracou_6_RCR_60, na.rm = TRUE)
 ```
 
 
@@ -358,5 +413,69 @@ En choisissant $\alpha = 2 \pi$, chaque voisin $j$ contribue à ${NCI}_i$ comme 
 
 La définition ${RCR}_i = d_i^{eq} / r_{max}$ ne change pas.
 De même que $NCI_i$ peut être négatif, $d_i^{eq}$ et ${RCR}_i$ peuvent être négatifs.
+
+
+
+# Formes alternatives
+
+## Définitions
+
+Le NCI peut être défini [@Zambrano2020] comme
+$${NCI}_i = \sum_j^{r_{i,j} \leq r_{max}}{d_j^2 / r_{i,j}^2},$$
+
+c'est-à-dire que le carré des diamètres des voisins est pondéré par l'inverse du carré de leur distance par rapport à l'arbre focal.
+L'argument `method` de la fonction `NCI()` est "invsq" pour appliquer cette formule.
+
+La forme de décroissance exponentielle [@Schmitt2023] est
+$${NCI}_i = \sum_j{d_j^2 e^{ur_{i,j}}},$$
+
+où $u < 0$ est le taux de décroissance, -0,25 par défaut dans `NCI(method = "exp")`.
+
+## Comparaison des méthodes
+
+Les NCI sont calculés avec une distance maximale de 10 ou 20 mètres, avec les trois formes et sans correction des effets de bord.
+
+```{r}
+# Compare the methods.
+NCI_inv_10 <- NCI(paracou_6, method = "inv", correct_edge_effects = FALSE)
+NCI_inv_20 <- NCI(paracou_6, method = "inv", r_max = 20, correct_edge_effects = FALSE)
+NCI_invsq_10 <- NCI(paracou_6, method = "invsq", correct_edge_effects = FALSE)
+NCI_invsq_20 <- NCI(paracou_6, method = "invsq", r_max = 20, correct_edge_effects = FALSE)
+NCI_exp_10 <- NCI(paracou_6, method = "exp", correct_edge_effects = FALSE)
+NCI_exp_20 <- NCI(paracou_6, method = "exp", r_max = 20, correct_edge_effects = FALSE)
+# Correlogram
+library("ggcorrplot")
+data.frame(
+  d_10 = NCI_inv_10, 
+  d_20 = NCI_inv_20, 
+  d2_10 = NCI_invsq_10, 
+  d2_20 = NCI_invsq_20, 
+  exp_10 = NCI_exp_10,
+  exp_20 = NCI_exp_20
+) %>% 
+  cor(use = "pairwise.complete.obs") %>% 
+  round(2) %>% 
+  ggcorrplot(type = "lower", lab = TRUE)
+```
+
+Tous les NCI sont fortement corrélés, à l'exception de la distance au carré et des décroissances exponentielles.
+La méthode de la distance inverse limitée à 10 mètres (d_10) est bien corrélée avec toutes les autres, y compris la distance au carré.
+Ceci peut être illustré par la courbe des facteurs, entre 0,25 et 20 mètres.
+
+```{r}
+d_max <- 20
+curve(1/x^2, from = 0.25, to = d_max, log = "y", xlab = "distance", ylab = "factor")
+curve(1/x, from = 0.25, to = d_max, add = TRUE, col = "red")
+curve(exp(-.25 * x), from = .25, to = d_max, add = TRUE, col = "green")
+```
+
+La courbe verte représente l'inverse de la distance ($1/d$), la courbe rouge l'exponentielle ($e^{-d/4}$) et la courbe noire l'inverse de la distance au carré ($1/d^2$).
+Les valeurs sont en logarithme.
+On constate que, sauf pour les voisins très proches et jusqu'à 10 mètres, les facteurs de la distance inverse et de l'exponentielle négative sont très similaires. 
+L'inverse de la distance au carré diminue beaucoup plus rapidement : il donne un poids très important aux voisins proches par rapport aux voisins éloignés.
+
+L'avantage de la forme de décroissance exponentielle est qu'elle ne définit pas de coupure nette entre les arbres voisins et non voisins, mais son taux de décroissance est arbitraire.
+Par ailleurs, seule la définition de l'inverse de la distance permet l'interprétation géométrique décrite ci-dessus.
+
 
 `r if (knitr:::is_html_output()) '# Références {-}'`
